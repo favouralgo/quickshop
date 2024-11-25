@@ -32,9 +32,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     // Insert order items
                     $stmt = $conn->prepare("INSERT INTO orderdetails (orderID, productID, quantity, price) VALUES (?, ?, ?, ?)");
-                    foreach ($_POST['items'] as $item) {
+                    $items = json_decode($_POST['items'], true);
+                    foreach ($items as $item) {
                         $stmt->bind_param("iiid", $orderId, $item['productId'], $item['quantity'], $item['price']);
                         $stmt->execute();
+                        
+                        // Update product quantity
+                        $updateStmt = $conn->prepare("UPDATE products SET quantity = quantity - ? WHERE productID = ?");
+                        $updateStmt->bind_param("ii", $item['quantity'], $item['productId']);
+                        $updateStmt->execute();
                     }
 
                     $conn->commit();
@@ -53,6 +59,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $conn->begin_transaction();
                 try {
+                    // Get original order items to restore quantities
+                    $originalItems = [];
+                    $stmt = $conn->prepare("SELECT productID, quantity FROM orderdetails WHERE orderID = ?");
+                    $stmt->bind_param("i", $_POST['orderId']);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                    while ($row = $result->fetch_assoc()) {
+                        $originalItems[] = $row;
+                    }
+
+                    // Restore original quantities
+                    foreach ($originalItems as $item) {
+                        $updateStmt = $conn->prepare("UPDATE products SET quantity = quantity + ? WHERE productID = ?");
+                        $updateStmt->bind_param("ii", $item['quantity'], $item['productID']);
+                        $updateStmt->execute();
+                    }
+
                     // Update order
                     $stmt = $conn->prepare("UPDATE orders SET date = ?, total_amount = ? WHERE orderID = ?");
                     $stmt->bind_param("sdi", $_POST['date'], $_POST['total_amount'], $_POST['orderId']);
@@ -65,9 +88,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     // Insert new items
                     $stmt = $conn->prepare("INSERT INTO orderdetails (orderID, productID, quantity, price) VALUES (?, ?, ?, ?)");
-                    foreach ($_POST['items'] as $item) {
+                    $items = json_decode($_POST['items'], true);
+                    foreach ($items as $item) {
                         $stmt->bind_param("iiid", $_POST['orderId'], $item['productId'], $item['quantity'], $item['price']);
                         $stmt->execute();
+                        
+                        // Update new quantities
+                        $updateStmt = $conn->prepare("UPDATE products SET quantity = quantity - ? WHERE productID = ?");
+                        $updateStmt->bind_param("ii", $item['quantity'], $item['productId']);
+                        $updateStmt->execute();
                     }
 
                     $conn->commit();
@@ -86,7 +115,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $conn->begin_transaction();
                 try {
-                    // Delete order items first
+                    // Restore product quantities before deleting
+                    $stmt = $conn->prepare("SELECT productID, quantity FROM orderdetails WHERE orderID = ?");
+                    $stmt->bind_param("i", $_POST['orderId']);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                    while ($item = $result->fetch_assoc()) {
+                        $updateStmt = $conn->prepare("UPDATE products SET quantity = quantity + ? WHERE productID = ?");
+                        $updateStmt->bind_param("ii", $item['quantity'], $item['productID']);
+                        $updateStmt->execute();
+                    }
+
+                    // Delete order items
                     $stmt = $conn->prepare("DELETE FROM orderdetails WHERE orderID = ?");
                     $stmt->bind_param("i", $_POST['orderId']);
                     $stmt->execute();
@@ -141,13 +181,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch initial products for dropdown
-$productsQuery = "SELECT productID as id, name, price FROM products WHERE quantity > 0";
+// Fetch available products for dropdown
+$productsQuery = "SELECT productID as id, name, price, quantity FROM products WHERE quantity > 0";
 $productsResult = $conn->query($productsQuery);
 $products = [];
 if ($productsResult) {
     while ($row = $productsResult->fetch_assoc()) {
         $products[] = $row;
+    }
+}
+
+// Fetch customers for dropdown
+$customersQuery = "SELECT userID, name, email FROM users WHERE role = 'customer'";
+$customersResult = $conn->query($customersQuery);
+$customers = [];
+if ($customersResult) {
+    while ($row = $customersResult->fetch_assoc()) {
+        $customers[] = $row;
     }
 }
 ?>
@@ -171,7 +221,7 @@ if ($productsResult) {
             <?php elseif ($userRole === 'sales'): ?>
                 <li><a href="admin/salesdashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
             <?php elseif ($userRole === 'inventory'): ?>
-                <li><a href="admin/dashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
+                <li><a href="admin/inventorydashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
             <?php endif; ?>
             
             <li><a href="orders.php" class="active"><i class="fas fa-shopping-cart"></i>Orders</a></li>
@@ -223,15 +273,18 @@ if ($productsResult) {
             <form id="orderForm">
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="customerName">Customer Name</label>
-                        <input type="text" id="customerName" required>
+                        <label for="customerSelect">Customer</label>
+                        <select id="customerSelect" required>
+                            <option value="">Select Customer</option>
+                            <?php foreach ($customers as $customer): ?>
+                                <option value="<?php echo $customer['userID']; ?>" 
+                                        data-email="<?php echo htmlspecialchars($customer['email']); ?>"
+                                        data-name="<?php echo htmlspecialchars($customer['name']); ?>">
+                                    <?php echo htmlspecialchars($customer['name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
-                    <div class="form-group">
-                        <label for="customerEmail">Customer Email</label>
-                        <input type="email" id="customerEmail" required>
-                    </div>
-                </div>
-                <div class="form-row">
                     <div class="form-group">
                         <label for="orderDate">Order Date</label>
                         <input type="date" id="orderDate" required>
@@ -293,6 +346,23 @@ if ($productsResult) {
         let orders = [];
         let currentOrderId = null;
 
+        // Initialization
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchOrders();
+            
+            if (document.getElementById('customerSelect')) {
+                document.getElementById('customerSelect').addEventListener('change', function() {
+                    const selectedOption = this.options[this.selectedIndex];
+                    if (selectedOption.value) {
+                        const customerName = selectedOption.getAttribute('data-name');
+                        const customerEmail = selectedOption.getAttribute('data-email');
+                        console.log(`Selected customer: ${customerName} (${customerEmail})`);
+                    }
+                });
+            }
+        });
+
+        // Fetch orders from server
         function fetchOrders() {
             fetch('orders.php', {
                 method: 'POST',
@@ -306,7 +376,17 @@ if ($productsResult) {
                     initializeTable();
                 }
             })
-            .catch(error => console.error('Error:', error));
+            .catch(error => {
+                showNotification('Error fetching orders: ' + error, 'error');
+            });
+        }
+
+        function initializeTable() {
+            const tableBody = document.getElementById('ordersTableBody');
+            tableBody.innerHTML = '';
+            orders.forEach(order => {
+                tableBody.appendChild(createOrderRow(order));
+            });
         }
 
         function createOrderRow(order) {
@@ -345,15 +425,7 @@ if ($productsResult) {
             return row;
         }
 
-        function initializeTable() {
-            const tableBody = document.getElementById('ordersTableBody');
-            tableBody.innerHTML = '';
-            orders.forEach(order => {
-                tableBody.appendChild(createOrderRow(order));
-            });
-        }
-
-        // Keep your existing modal functions (openModal, closeModal)
+        // Modal Functions
         function openModal(modalId) {
             document.getElementById(modalId).classList.add('active');
         }
@@ -379,10 +451,12 @@ if ($productsResult) {
             const order = orders.find(o => o.orderID == orderId);
             
             document.getElementById('modalTitle').textContent = 'Edit Order';
-            document.getElementById('customerName').value = order.customerName;
-            document.getElementById('customerEmail').value = order.customerEmail;
+            
+            // Set customer and order details
+            document.getElementById('customerSelect').value = order.userID;
             document.getElementById('orderDate').value = order.date;
             
+            // Clear and populate order items
             document.getElementById('orderItemsBody').innerHTML = '';
             order.items.forEach(item => {
                 addOrderItem(item);
@@ -395,8 +469,7 @@ if ($productsResult) {
             const order = orders.find(o => o.orderID == orderId);
             const formattedDate = new Date(order.date).toLocaleDateString();
             
-            const orderDetails = document.getElementById('orderDetails');
-            orderDetails.innerHTML = `
+            document.getElementById('orderDetails').innerHTML = `
                 <div style="margin-bottom: 20px;">
                     <h3>Order #${order.orderID}</h3>
                     <p><strong>Date:</strong> ${formattedDate}</p>
@@ -436,7 +509,7 @@ if ($productsResult) {
             openModal('viewOrderModal');
         }
 
-        // Keep your existing item management functions
+        // Order Item Management
         function addOrderItem(item = null) {
             const tbody = document.getElementById('orderItemsBody');
             const row = document.createElement('tr');
@@ -448,8 +521,9 @@ if ($productsResult) {
                         ${products.map(product => `
                             <option value="${product.id}" 
                                     data-price="${product.price}"
+                                    data-stock="${product.quantity}"
                                     ${item && item.productID == product.id ? 'selected' : ''}>
-                                ${product.name}
+                                ${product.name} (Stock: ${product.quantity})
                             </option>
                         `).join('')}
                     </select>
@@ -464,7 +538,8 @@ if ($productsResult) {
                     <input type="number" class="price-input" 
                            value="${item ? item.price : ''}" 
                            step="0.01" 
-                           onchange="updateItemTotal(this)" required>
+                           readonly
+                           required>
                 </td>
                 <td class="item-total">$0.00</td>
                 <td>
@@ -483,12 +558,18 @@ if ($productsResult) {
             }
         }
 
-        // Keep your existing update functions
         function updateItemPrice(select) {
             const row = select.closest('tr');
-            const price = select.options[select.selectedIndex].dataset.price;
-            row.querySelector('.price-input').value = price;
-            updateItemTotal(select);
+            const selectedOption = select.options[select.selectedIndex];
+            const price = selectedOption.dataset.price;
+            const stock = parseInt(selectedOption.dataset.stock);
+            
+            const quantityInput = row.querySelector('.quantity-input');
+            quantityInput.max = stock;
+            
+            const priceInput = row.querySelector('.price-input');
+            priceInput.value = price;
+            updateItemTotal(priceInput);
         }
 
         function updateItemTotal(element) {
@@ -522,11 +603,17 @@ if ($productsResult) {
             currentOrderId = null;
         }
 
-        // Form submission
+        // Form submission handler
         if (canManageOrders) {
             document.getElementById('orderForm').addEventListener('submit', function(e) {
                 e.preventDefault();
                 
+                const customerSelect = document.getElementById('customerSelect');
+                if (!customerSelect.value) {
+                    showNotification('Please select a customer', 'error');
+                    return;
+                }
+
                 const items = Array.from(document.getElementById('orderItemsBody').getElementsByTagName('tr'))
                     .map(row => ({
                         productId: row.querySelector('.product-select').value,
@@ -534,10 +621,27 @@ if ($productsResult) {
                         price: parseFloat(row.querySelector('.price-input').value)
                     }));
 
+                if (items.length === 0) {
+                    showNotification('Please add at least one item to the order', 'error');
+                    return;
+                }
+
+                // Validate stock levels
+                const invalidItems = items.filter(item => {
+                    const product = products.find(p => p.id == item.productId);
+                    return item.quantity > product.quantity;
+                });
+
+                if (invalidItems.length > 0) {
+                    showNotification('Some items exceed available stock', 'error');
+                    return;
+                }
+
                 const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
                 
                 const orderData = new URLSearchParams({
                     action: currentOrderId ? 'update' : 'add',
+                    userID: customerSelect.value,
                     date: document.getElementById('orderDate').value,
                     total_amount: totalAmount,
                     items: JSON.stringify(items)
@@ -638,28 +742,15 @@ if ($productsResult) {
             notification.style.gap = '10px';
             notification.style.animation = 'slideIn 0.5s ease-out';
 
-            // Add animation keyframes
             const style = document.createElement('style');
             style.textContent = `
                 @keyframes slideIn {
-                    from {
-                        transform: translateX(100%);
-                        opacity: 0;
-                    }
-                    to {
-                        transform: translateX(0);
-                        opacity: 1;
-                    }
+                    from { transform: translateX(100%); opacity: 0; }
+                    to { transform: translateX(0); opacity: 1; }
                 }
                 @keyframes slideOut {
-                    from {
-                        transform: translateX(0);
-                        opacity: 1;
-                    }
-                    to {
-                        transform: translateX(100%);
-                        opacity: 0;
-                    }
+                    from { transform: translateX(0); opacity: 1; }
+                    to { transform: translateX(100%); opacity: 0; }
                 }
             `;
             document.head.appendChild(style);
@@ -674,18 +765,12 @@ if ($productsResult) {
             }, 3000);
         }
 
-        // Close modal when clicking outside
+        // Handle modal clicks outside
         window.onclick = function(event) {
-            const modals = document.getElementsByClassName('modal');
-            Array.from(modals).forEach(modal => {
-                if (event.target === modal) {
-                    closeModal(modal.id);
-                }
-            });
+            if (event.target.classList.contains('modal')) {
+                closeModal(event.target.id);
+            }
         };
-
-        // Initialize orders table on page load
-        document.addEventListener('DOMContentLoaded', fetchOrders);
     </script>
 </body>
 </html>
