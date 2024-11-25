@@ -50,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         header('Location: admin/salesdashboard.php');
                         exit();
                     case 'inventory':
-                        header('Location: admin/dashboard.php');
+                        header('Location: admin/salesdashboard.php');
                         exit();
                     default:
                         $errorMsg = "Invalid user role.";
