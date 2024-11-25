@@ -12,7 +12,7 @@ switch ($_SESSION['role']) {
         header('Location: salesdashboard.php');
         exit();
     case 'inventory':
-        header('Location: salesdashboard.php');
+        header('Location: inventorydashboard.php');
         exit();
     default:
         $errorMsg = "Invalid user role.";
