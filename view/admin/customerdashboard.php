@@ -65,10 +65,10 @@ $recent_orders = mysqli_stmt_get_result($stmt);
 <div class="sidebar">
     <div class="logo">QuickShop</div>
     <ul class="nav-links">
-        <li><a href="customerdashboard.html"><i class="fas fa-home"></i>Dashboard</a></li>
+        <li><a href="customerdashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
         <li><a href="../orders.html"><i class="fas fa-shopping-bag"></i>My Orders</a></li>
         <li><a href="../products.html"><i class="fas fa-box"></i>Products</a></li>
-        <li><a href="../profile.html"><i class="fas fa-user"></i>Profile</a></li>
+        <li><a href="../profile.php"><i class="fas fa-user"></i>Profile</a></li>
         <li><a href="../../actions/logout.php" onclick="event.preventDefault(); logoutUser();">
                 <i class="fas fa-sign-out-alt"></i>Logout
             </a></li>    </ul>

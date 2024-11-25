@@ -53,11 +53,11 @@ $latest_products = mysqli_query($conn, $latest_products_query);
 <div class="sidebar">
     <div class="logo">QuickShop</div>
     <ul class="nav-links">
-        <li><a href="#"><i class="fas fa-home"></i>Dashboard</a></li>
+        <li><a href="admindashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
         <li><a href="../users.html"><i class="fas fa-users"></i>Users</a></li>
         <li><a href="../orders.html"><i class="fas fa-shopping-cart"></i>Orders</a></li>
         <li><a href="../products.html"><i class="fas fa-box"></i>Products</a></li>
-        <li><a href="../profile.html"><i class="fas fa-user"></i>Profile</a></li>
+        <li><a href="../profile.php"><i class="fas fa-user"></i>Profile</a></li>
         <li><a href="../../actions/logout.php" onclick="event.preventDefault(); logoutUser();">
                 <i class="fas fa-sign-out-alt"></i>Logout
             </a></li>

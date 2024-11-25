@@ -8,7 +8,7 @@ header("Cache-Control: post-check=0, pre-check=0", false);
 header("Pragma: no-cache");
 
 // Get user ID from session
-$userID = $_SESSION['userID'] ?? null;
+$userID = $_SESSION['user_id'] ?? null;
 
 if (!$userID) {
     header('Location: login.php');
@@ -97,7 +97,7 @@ $conn->close();
 <div class="sidebar">
     <div class="logo">QuickShop</div>
     <ul class="nav-links">
-        <li><a href="dashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
+        <li><a href="admin/dashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
         <li><a href="orders.php"><i class="fas fa-shopping-bag"></i>My Orders</a></li>
         <li><a href="products.php"><i class="fas fa-box"></i>Products</a></li>
         <li><a href="profile.php" class="active"><i class="fas fa-user"></i>Profile</a></li>
@@ -161,7 +161,7 @@ $conn->close();
         }).then(response => {
             if (response.ok) {
                 // Redirect to login page after logout
-                window.location.href = '../login.php';
+                window.location.href = 'login.php';
             }
         });
     }
