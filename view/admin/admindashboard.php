@@ -54,9 +54,9 @@ $latest_products = mysqli_query($conn, $latest_products_query);
     <div class="logo">QuickShop</div>
     <ul class="nav-links">
         <li><a href="admindashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
-        <li><a href="../users.html"><i class="fas fa-users"></i>Users</a></li>
-        <li><a href="../orders.html"><i class="fas fa-shopping-cart"></i>Orders</a></li>
-        <li><a href="../products.html"><i class="fas fa-box"></i>Products</a></li>
+        <li><a href="../users.php"><i class="fas fa-users"></i>Users</a></li>
+        <li><a href="../orders.php"><i class="fas fa-shopping-cart"></i>Orders</a></li>
+        <li><a href="../products.php"><i class="fas fa-box"></i>Products</a></li>
         <li><a href="../profile.php"><i class="fas fa-user"></i>Profile</a></li>
         <li><a href="../../actions/logout.php" onclick="event.preventDefault(); logoutUser();">
                 <i class="fas fa-sign-out-alt"></i>Logout
@@ -94,7 +94,7 @@ $latest_products = mysqli_query($conn, $latest_products_query);
 
     <div class="orders-section">
         <h2 class="section-title">Recent Orders</h2>
-        <a href="../orders.html">
+        <a href="../orders.php">
             <button class="action-button">View All Orders</button>
         </a>
         <table class="orders-table">
@@ -128,7 +128,7 @@ $latest_products = mysqli_query($conn, $latest_products_query);
     <div class="products-section">
         <div class="section-title">
             <span>Latest Products</span>
-            <a href="../products.html">
+            <a href="../products.php">
                 <button class="action-button">View All Products</button>
             </a>
         </div>

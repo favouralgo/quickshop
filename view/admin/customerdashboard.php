@@ -1,28 +1,33 @@
 <?php
-// Start session to get user ID
-session_start();
+require_once 'auth_middleware.php';
 include '../../db/db_connect.php';
+
+// Check if user is a customer
+checkUserRole(['customer']);
+
+// Get user ID and verify it matches the logged-in user
+$userID = getUserId();
 
 // Prevent caching
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Cache-Control: post-check=0, pre-check=0", false);
 header("Pragma: no-cache");
 
-if (!isset($_SESSION['role']) || !isset($_SESSION['user_id'])) {
-    header("Location: ../login.php");
-    exit();
-}
-
-// Get user ID from session
-$userID = $_SESSION['user_id'] ?? 0;  // You should have this set when user logs in
-
-// Get user's name
-$user_query = "SELECT name FROM users WHERE userID = ?";
+// Get user's name with prepared statement
+$user_query = "SELECT name FROM users WHERE userID = ? AND role = 'customer'";
 $stmt = mysqli_prepare($conn, $user_query);
 mysqli_stmt_bind_param($stmt, "i", $userID);
 mysqli_stmt_execute($stmt);
 $user_result = mysqli_stmt_get_result($stmt);
-$user_name = mysqli_fetch_assoc($user_result)['name'] ?? 'Customer';
+$user_data = mysqli_fetch_assoc($user_result);
+
+if (!$user_data) {
+    // If user not found or not a customer, redirect to login
+    header("Location: ../login.php");
+    exit();
+}
+
+$user_name = $user_data['name'];
 
 // Count total orders for this user
 $total_orders_query = "SELECT COUNT(*) as count FROM orders WHERE userID = ?";
@@ -65,13 +70,18 @@ $recent_orders = mysqli_stmt_get_result($stmt);
 <div class="sidebar">
     <div class="logo">QuickShop</div>
     <ul class="nav-links">
-        <li><a href="customerdashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
-        <li><a href="../orders.html"><i class="fas fa-shopping-bag"></i>My Orders</a></li>
-        <li><a href="../products.html"><i class="fas fa-box"></i>Products</a></li>
+        <li><a href="customerdashboard.php" class="active"><i class="fas fa-home"></i>Dashboard</a></li>
+        <?php if (canViewProducts()): ?>
+        <li><a href="../products.php"><i class="fas fa-box"></i>Products</a></li>
+        <?php endif; ?>
+        <?php if (canViewOwnOrders()): ?>
+        <li><a href="../customer_orders.php"><i class="fas fa-shopping-bag"></i>My Orders</a></li>
+        <?php endif; ?>
         <li><a href="../profile.php"><i class="fas fa-user"></i>Profile</a></li>
         <li><a href="../../actions/logout.php" onclick="event.preventDefault(); logoutUser();">
                 <i class="fas fa-sign-out-alt"></i>Logout
-            </a></li>    </ul>
+            </a></li>
+    </ul>
 </div>
 
 <div class="main-content">
@@ -93,7 +103,9 @@ $recent_orders = mysqli_stmt_get_result($stmt);
 
     <div class="orders-section">
         <h2 class="section-title">Recent Orders You Placed</h2>
-        <button class="action-button">View All Orders</button>
+        <?php if (canViewOwnOrders()): ?>
+        <a href="../customer_orders.php" class="action-button">View All Orders</a>
+        <?php endif; ?>
         <table class="orders-table">
             <thead>
             <tr>
@@ -125,43 +137,39 @@ $recent_orders = mysqli_stmt_get_result($stmt);
 
 <script>
     function logoutUser() {
-        // Clear sessions (usually handled on server side)
         fetch('../../actions/logout.php', {
-            method: 'POST'
+            method: 'POST',
+            credentials: 'same-origin'
         }).then(response => {
             if (response.ok) {
-                // Redirect to login page after logout
                 window.location.href = '../login.php';
             }
+        }).catch(error => {
+            console.error('Logout error:', error);
         });
     }
 
     // Add active class to current nav item
-    const navLinks = document.querySelectorAll('.nav-links a');
-    navLinks.forEach(link => {
-        link.addEventListener('click', function() {
-            navLinks.forEach(l => l.classList.remove('active'));
-            this.classList.add('active');
+    document.addEventListener('DOMContentLoaded', function() {
+        const navLinks = document.querySelectorAll('.nav-links a');
+        const currentPath = window.location.pathname;
+        
+        navLinks.forEach(link => {
+            if (currentPath.includes(link.getAttribute('href'))) {
+                link.classList.add('active');
+            }
+            
+            link.addEventListener('click', function(e) {
+                if (this.getAttribute('href') === '#') {
+                    e.preventDefault();
+                }
+                navLinks.forEach(l => l.classList.remove('active'));
+                this.classList.add('active');
+            });
         });
     });
 </script>
-<script type="text/javascript">
-    (function() {
-        if (window.history.replaceState) {
-            window.history.replaceState(null, null, window.location.href);
-        }
 
-        window.onpageshow = function(event) {
-            if (event.persisted) {
-                window.location.reload();
-            }
-        };
-    })();
-</script>
-
-<?php
-// Close database connection
-mysqli_close($conn);
-?>
+<?php mysqli_close($conn); ?>
 </body>
 </html>

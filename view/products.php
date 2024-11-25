@@ -1,3 +1,87 @@
+<?php
+require_once 'admin/auth_middleware.php';
+include '../db/db_connect.php';
+
+// Check if user can at least view products
+checkUserRole(['administrator', 'inventory', 'sales', 'customer']);
+
+// Get user's role and permissions
+$userRole = getUserRole();
+$canManageProducts = canManageProducts();
+
+// Handle AJAX requests
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    
+    if (isset($_POST['action'])) {
+        switch ($_POST['action']) {
+            case 'add':
+                if (!$canManageProducts) {
+                    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+                    exit;
+                }
+                $name = $_POST['name'];
+                $description = $_POST['description'];
+                $price = $_POST['price'];
+                $quantity = $_POST['stock'];
+
+                $stmt = $conn->prepare("INSERT INTO products (name, description, price, quantity) VALUES (?, ?, ?, ?)");
+                $stmt->bind_param("ssii", $name, $description, $price, $quantity);
+                $success = $stmt->execute();
+
+                echo json_encode(['success' => $success, 'error' => $conn->error]);
+                break;
+
+            case 'update':
+                if (!$canManageProducts) {
+                    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+                    exit;
+                }
+                $id = $_POST['id'];
+                $name = $_POST['name'];
+                $description = $_POST['description'];
+                $price = $_POST['price'];
+                $quantity = $_POST['stock'];
+
+                $stmt = $conn->prepare("UPDATE products SET name = ?, description = ?, price = ?, quantity = ? WHERE productID = ?");
+                $stmt->bind_param("ssiii", $name, $description, $price, $quantity, $id);
+                $success = $stmt->execute();
+
+                echo json_encode(['success' => $success, 'error' => $conn->error]);
+                break;
+
+            case 'delete':
+                if (!$canManageProducts) {
+                    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+                    exit;
+                }
+                $id = $_POST['id'];
+                $stmt = $conn->prepare("DELETE FROM products WHERE productID = ?");
+                $stmt->bind_param("i", $id);
+                $success = $stmt->execute();
+
+                echo json_encode(['success' => $success, 'error' => $conn->error]);
+                break;
+
+            case 'fetch':
+                $query = "SELECT * FROM products ORDER BY productID DESC";
+                $result = $conn->query($query);
+                $products = [];
+                
+                if ($result) {
+                    while ($row = $result->fetch_assoc()) {
+                        $products[] = $row;
+                    }
+                }
+                
+                echo json_encode(['success' => true, 'products' => $products]);
+                break;
+        }
+        exit;
+    }
+}
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,18 +90,28 @@
     <title>QuickShop - Products Management</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="../assets/css/products.css">
-
 </head>
 <body>
     <div class="sidebar">
         <div class="logo">QuickShop</div>
         <ul class="nav-links">
-            <li><a href="#"><i class="fas fa-home"></i>Dashboard</a></li>
-            <li><a href="#"><i class="fas fa-users"></i>Users</a></li>
-            <li><a href="#"><i class="fas fa-shopping-cart"></i>Orders</a></li>
-            <li><a href="#" class="active"><i class="fas fa-box"></i>Products</a></li>
-            <li><a href="#"><i class="fas fa-chart-bar"></i>Analytics</a></li>
-            <li><a href="#"><i class="fas fa-sign-out-alt"></i>Logout</a></li>
+            <?php if ($userRole === 'administrator'): ?>
+                <li><a href="admin/admindashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
+                <li><a href="users.php"><i class="fas fa-users"></i>Users</a></li>
+            <?php elseif ($userRole === 'inventory'): ?>
+                <li><a href="admin/dashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
+            <?php elseif ($userRole === 'sales'): ?>
+                <li><a href="admin/salesdashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
+            <?php elseif ($userRole === 'customer'): ?>
+                <li><a href="admin/customerdashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
+            <?php endif; ?>
+            
+            <?php if (canViewOrders()): ?>
+                <li><a href="orders.php"><i class="fas fa-shopping-cart"></i>Orders</a></li>
+            <?php endif; ?>
+            
+            <li><a href="products.php" class="active"><i class="fas fa-box"></i>Products</a></li>
+            <li><a href="../actions/logout.php"><i class="fas fa-sign-out-alt"></i>Logout</a></li>
         </ul>
     </div>
 
@@ -27,9 +121,11 @@
                 <input type="text" placeholder="Search products..." id="searchInput">
                 <i class="fas fa-search"></i>
             </div>
+            <?php if ($canManageProducts): ?>
             <button class="add-product-btn" onclick="openAddModal()">
                 <i class="fas fa-plus"></i> Add Product
             </button>
+            <?php endif; ?>
         </div>
 
         <div class="products-table-container">
@@ -42,16 +138,18 @@
                         <th>Price</th>
                         <th>Stock</th>
                         <th>Status</th>
+                        <?php if ($canManageProducts): ?>
                         <th>Actions</th>
+                        <?php endif; ?>
                     </tr>
                 </thead>
                 <tbody id="productsTableBody">
-                   
                 </tbody>
             </table>
         </div>
     </div>
 
+    <?php if ($canManageProducts): ?>
     <!-- Add/Edit Product Modal -->
     <div class="modal" id="productModal">
         <div class="modal-content">
@@ -98,80 +196,75 @@
             </div>
         </div>
     </div>
+    <?php endif; ?>
 
     <script>
-        // Sample product data
-        let products = [
-            { id: 1, name: "Smartphone X", description: "Latest model with advanced features", price: 999.99, stock: 50 },
-            { id: 2, name: "Laptop Pro", description: "High-performance laptop for professionals", price: 1499.99, stock: 25 },
-            { id: 3, name: "Wireless Earbuds", description: "Premium sound quality with noise cancellation", price: 199.99, stock: 100 },
-            { id: 4, name: "Smart Watch", description: "Fitness tracking and notifications", price: 299.99, stock: 5 },
-            { id: 5, name: "4K TV", description: "65-inch display with HDR", price: 1299.99, stock: 0 }
-        ];
-
+        const canManageProducts = <?php echo json_encode($canManageProducts); ?>;
+        let products = [];
         let currentProductId = null;
 
-        // Initialize the table
-        function initializeTable() {
-            const tableBody = document.getElementById('productsTableBody');
-            tableBody.innerHTML = '';
-            
-            products.forEach(product => {
-                const row = createProductRow(product);
-                tableBody.appendChild(row);
-            });
+        // Fetch products from server
+        function fetchProducts() {
+            fetch('products.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=fetch'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    products = data.products;
+                    initializeTable();
+                }
+            })
+            .catch(error => console.error('Error:', error));
         }
 
-        // Create a table row for a product
         function createProductRow(product) {
             const row = document.createElement('tr');
             
             let stockStatus = '';
-            if (product.stock === 0) {
+            if (product.quantity === 0) {
                 stockStatus = '<span class="stock-status out-of-stock">Out of Stock</span>';
-            } else if (product.stock <= 10) {
+            } else if (product.quantity <= 10) {
                 stockStatus = '<span class="stock-status low-stock">Low Stock</span>';
             } else {
                 stockStatus = '<span class="stock-status in-stock">In Stock</span>';
             }
 
             row.innerHTML = `
-                <td>#${product.id}</td>
+                <td>#${product.productID}</td>
                 <td>${product.name}</td>
                 <td>${product.description}</td>
-                <td>$${product.price.toFixed(2)}</td>
-                <td>${product.stock}</td>
+                <td>$${parseFloat(product.price).toFixed(2)}</td>
+                <td>${product.quantity}</td>
                 <td>${stockStatus}</td>
+                ${canManageProducts ? `
                 <td>
                     <div class="action-buttons">
-                        <button class="action-btn edit-btn" onclick="openEditModal(${product.id})">
+                        <button class="action-btn edit-btn" onclick="openEditModal(${product.productID})">
                             <i class="fas fa-edit"></i> Edit
                         </button>
-                        <button class="action-btn delete-btn" onclick="openDeleteModal(${product.id})">
+                        <button class="action-btn delete-btn" onclick="openDeleteModal(${product.productID})">
                             <i class="fas fa-trash"></i> Delete
                         </button>
                     </div>
                 </td>
+                ` : ''}
             `;
             
             return row;
         }
 
-        // Search functionality
-        document.getElementById('searchInput').addEventListener('input', function(e) {
-            const searchTerm = e.target.value.toLowerCase();
-            const filteredProducts = products.filter(product => 
-                product.name.toLowerCase().includes(searchTerm) ||
-                product.description.toLowerCase().includes(searchTerm)
-            );
-            
+        function initializeTable() {
             const tableBody = document.getElementById('productsTableBody');
             tableBody.innerHTML = '';
-            filteredProducts.forEach(product => {
-                const row = createProductRow(product);
-                tableBody.appendChild(row);
+            products.forEach(product => {
+                tableBody.appendChild(createProductRow(product));
             });
-        });
+        }
 
         // Modal functions
         function openModal(modalId) {
@@ -194,13 +287,13 @@
 
         function openEditModal(productId) {
             currentProductId = productId;
-            const product = products.find(p => p.id === productId);
+            const product = products.find(p => p.productID === productId);
             
             document.getElementById('modalTitle').textContent = 'Edit Product';
             document.getElementById('productName').value = product.name;
             document.getElementById('productDescription').value = product.description;
             document.getElementById('productPrice').value = product.price;
-            document.getElementById('productStock').value = product.stock;
+            document.getElementById('productStock').value = product.quantity;
             
             openModal('productModal');
         }
@@ -215,47 +308,80 @@
             currentProductId = null;
         }
 
-        // Form submission handling
-        document.getElementById('productForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const productData = {
-                name: document.getElementById('productName').value,
-                description: document.getElementById('productDescription').value,
-                price: parseFloat(document.getElementById('productPrice').value),
-                stock: parseInt(document.getElementById('productStock').value)
-            };
-
-            if (currentProductId) {
-                // Edit existing product
-                const index = products.findIndex(p => p.id === currentProductId);
-                products[index] = {
-                    ...products[index],
-                    ...productData
-                };
-                showNotification('Product updated successfully!', 'success');
-            } else {
-                // Add new product
-                const newProduct = {
-                    id: products.length + 1,
-                    ...productData
-                };
-                products.unshift(newProduct);
-                showNotification('Product added successfully!', 'success');
-            }
-
-            closeModal('productModal');
-            initializeTable();
-        });
-
-        // Delete product
         function confirmDelete() {
-            products = products.filter(p => p.id !== currentProductId);
-            closeModal('deleteModal');
-            initializeTable();
-            showNotification('Product deleted successfully!', 'success');
+            if (currentProductId) {
+                fetch('products.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `action=delete&id=${currentProductId}`
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        closeModal('deleteModal');
+                        showNotification('Product deleted successfully!', 'success');
+                        fetchProducts();
+                    } else {
+                        showNotification('Error deleting product: ' + (data.error || 'Unknown error'), 'error');
+                    }
+                });
+            }
         }
 
+        // Search functionality
+        document.getElementById('searchInput').addEventListener('input', function(e) {
+            const searchTerm = e.target.value.toLowerCase();
+            const tableBody = document.getElementById('productsTableBody');
+            tableBody.innerHTML = '';
+            
+            const filteredProducts = products.filter(product => 
+                product.name.toLowerCase().includes(searchTerm) ||
+                product.description.toLowerCase().includes(searchTerm)
+            );
+            
+            filteredProducts.forEach(product => {
+                tableBody.appendChild(createProductRow(product));
+            });
+        });
+
+        // Form submission handling
+        if (canManageProducts) {
+            document.getElementById('productForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const productData = {
+                    name: document.getElementById('productName').value,
+                    description: document.getElementById('productDescription').value,
+                    price: document.getElementById('productPrice').value,
+                    stock: document.getElementById('productStock').value,
+                    action: currentProductId ? 'update' : 'add'
+                };
+
+                if (currentProductId) {
+                    productData.id = currentProductId;
+                }
+
+                fetch('products.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams(productData)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification(`Product ${currentProductId ? 'updated' : 'added'} successfully!`, 'success');
+                        closeModal('productModal');
+                        fetchProducts();
+                    } else {
+                        showNotification('Error: ' + (data.error || 'Unknown error'), 'error');
+                    }
+                });
+            });
+        }
         // Notification system
         function showNotification(message, type) {
             const notification = document.createElement('div');
@@ -269,7 +395,6 @@
             
             document.body.appendChild(notification);
 
-            // Add styles for notification
             notification.style.position = 'fixed';
             notification.style.top = '20px';
             notification.style.right = '20px';
@@ -297,6 +422,16 @@
                         opacity: 1;
                     }
                 }
+                @keyframes slideOut {
+                    from {
+                        transform: translateX(0);
+                        opacity: 1;
+                    }
+                    to {
+                        transform: translateX(100%);
+                        opacity: 0;
+                    }
+                }
             `;
             document.head.appendChild(style);
 
@@ -304,18 +439,6 @@
             setTimeout(() => {
                 notification.style.animation = 'slideOut 0.5s ease-out';
                 notification.style.animationFillMode = 'forwards';
-                style.textContent += `
-                    @keyframes slideOut {
-                        from {
-                            transform: translateX(0);
-                            opacity: 1;
-                        }
-                        to {
-                            transform: translateX(100%);
-                            opacity: 0;
-                        }
-                    }
-                `;
                 setTimeout(() => {
                     document.body.removeChild(notification);
                     document.head.removeChild(style);
@@ -336,7 +459,7 @@
         validateNumberInput(document.getElementById('productStock'));
 
         // Initialize the table on page load
-        document.addEventListener('DOMContentLoaded', initializeTable);
+        document.addEventListener('DOMContentLoaded', fetchProducts);
 
         // Close modal when clicking outside
         window.onclick = function(event) {
