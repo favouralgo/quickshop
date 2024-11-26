@@ -18,4 +18,4 @@ switch ($_SESSION['role']) {
         $errorMsg = "Invalid user role.";
 }
 
-?>
+?>A
